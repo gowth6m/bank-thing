@@ -1,0 +1,89 @@
+networks:
+    web:
+        external: true
+
+volumes:
+    bankthing-redis-data:
+        external: true
+    bankthing-postgres-data:
+        external: true
+
+services:
+    postgres:
+        image: postgres:16-alpine
+        container_name: bankthing-postgres
+        restart: unless-stopped
+        environment:
+            POSTGRES_USER: postgres
+            POSTGRES_DB: postgres
+            POSTGRES_HOST_AUTH_METHOD: trust
+        volumes:
+            - bankthing-postgres-data:/var/lib/postgresql/data
+        networks:
+            - web
+
+    redis:
+        image: redis:7-alpine
+        container_name: bankthing-redis
+        restart: unless-stopped
+        ports:
+            - "6379:6379"
+        volumes:
+            - bankthing-redis-data:/data
+        networks:
+            - web
+
+    backend:
+        build:
+            context: ../backend
+            dockerfile: Dockerfile.prod
+            args:
+                DATABASE_URL: "postgresql://postgres:@bankthing-postgres:5432/postgres"
+        image: bankthing-backend:prod
+        container_name: bankthing-backend
+        restart: unless-stopped
+        env_file:
+            - ../backend/.env
+        environment:
+            REDIS_HOST: redis
+            REDIS_PORT: "6379"
+            DATABASE_URL: "postgresql://postgres:@bankthing-postgres:5432/postgres"
+        labels:
+            - "traefik.enable=true"
+            - "traefik.http.routers.backend.rule=Host(`api.bank-thing.gowtham.io`)"
+            - "traefik.http.routers.backend.entrypoints=websecure"
+            - "traefik.http.routers.backend.tls=true"
+            - "traefik.http.routers.backend.tls.certresolver=myresolver"
+            - "traefik.http.services.backend.loadbalancer.server.port=9095"
+            - "traefik.http.routers.backend-redirect.rule=Host(`api.bank-thing.gowtham.io`)"
+            - "traefik.http.middlewares.https-redirect.redirectscheme.scheme=https"
+            - "traefik.http.routers.frontend-redirect.middlewares=https-redirect"
+            - "traefik.http.routers.frontend-redirect.rule=Host(`bank-thing.gowtham.io`) && PathPrefix(`/`) && !PathPrefix(`/.well-known/acme-challenge/`)"
+        depends_on:
+            - postgres
+            - redis
+        networks:
+            - web
+
+    frontend:
+        build:
+            context: ../frontend
+            dockerfile: Dockerfile.prod
+            args:
+                VITE_API_BASE_URL: api.bank-thing.gowtham.io
+        image: bankthing-frontend:prod
+        container_name: bankthing-frontend
+        restart: unless-stopped
+        labels:
+            - "traefik.enable=true"
+            - "traefik.http.routers.frontend.rule=Host(`bank-thing.gowtham.io`)"
+            - "traefik.http.routers.frontend.entrypoints=websecure"
+            - "traefik.http.routers.frontend.tls=true"
+            - "traefik.http.routers.frontend.tls.certresolver=myresolver"
+            - "traefik.http.services.frontend.loadbalancer.server.port=80"
+            - "traefik.http.routers.frontend-redirect.rule=Host(`bank-thing.gowtham.io`)"
+            - "traefik.http.middlewares.https-redirect.redirectscheme.scheme=https"
+            - "traefik.http.routers.frontend-redirect.middlewares=https-redirect"
+            - "traefik.http.routers.frontend-redirect.rule=Host(`bank-thing.gowtham.io`) && PathPrefix(`/`) && !PathPrefix(`/.well-known/acme-challenge/`)"
+        networks:
+            - web

@@ -1,0 +1,70 @@
+# ----------------------------
+# Dependencies Layer
+# ----------------------------
+FROM node:slim AS deps
+WORKDIR /app
+
+# Copy only the files needed to install dependencies
+COPY package.json yarn.lock* package-lock.json* pnpm-lock.yaml* ./
+
+# Install dependencies
+RUN \
+    if [ -f package-lock.json ]; then npm ci; \
+    elif [ -f yarn.lock ]; then yarn --frozen-lockfile; \
+    elif [ -f pnpm-lock.yaml ]; then corepack enable pnpm && pnpm i --frozen-lockfile; \
+    else echo "Lockfile not found." && exit 1; \
+    fi
+
+
+# ----------------------------
+# Build Layer
+# ----------------------------
+FROM node:slim AS builder
+WORKDIR /app
+
+COPY --from=deps /app/node_modules ./node_modules
+
+# Copy the rest of the app (including Prisma schema)
+COPY . .
+
+# Prisma: generate client (schema in src/prisma)
+RUN npx prisma generate --schema=src/prisma/schema.prisma
+
+# Build app
+RUN \
+    if [ -f package-lock.json ]; then npm run build; \
+    elif [ -f yarn.lock ]; then yarn build; \
+    elif [ -f pnpm-lock.yaml ]; then corepack enable pnpm && pnpm build; \
+    else echo "Lockfile not found." && exit 1; \
+    fi
+
+# Set NODE_ENV
+ENV NODE_ENV=production
+
+# Reinstall for production
+RUN \
+    if [ -f package-lock.json ]; then npm ci --omit=dev && npm cache clean --force; \
+    elif [ -f yarn.lock ]; then yarn install --frozen-lockfile --production && yarn cache clean; \
+    elif [ -f pnpm-lock.yaml ]; then corepack enable pnpm && pnpm install --frozen-lockfile --prod; \
+    else echo "Lockfile not found." && exit 1; \
+    fi
+
+
+# ----------------------------
+# Runtime Layer
+# ----------------------------
+FROM node:slim AS runner
+WORKDIR /app
+
+# Install OpenSSL (for Prisma CLI at runtime)
+RUN apt-get update && apt-get install -y openssl
+
+# Copy built output and runtime deps
+COPY --from=builder --chown=node:node /app/dist ./dist
+COPY --from=builder --chown=node:node /app/node_modules ./node_modules
+COPY --from=builder --chown=node:node /app/package.json ./package.json
+COPY --from=builder --chown=node:node /app/src/prisma ./src/prisma
+
+USER node
+
+CMD ["sh", "-c", "npm run prisma:deploy && node dist/main.js"]

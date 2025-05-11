@@ -1,0 +1,125 @@
+datasource db {
+    provider = "postgresql"
+    url      = env("DATABASE_URL")
+}
+
+generator client {
+    provider      = "prisma-client-js"
+    binaryTargets = ["native", "debian-openssl-1.1.x", "debian-openssl-3.0.x"]
+}
+
+enum UserRole {
+    CUSTOMER
+    ADMIN
+}
+
+enum TransactionDirection {
+    IN
+    OUT
+}
+
+model User {
+    id                 String    @id @default(uuid())
+    email              String    @unique
+    firstName          String
+    lastName           String
+    password           String
+    role               UserRole  @default(CUSTOMER)
+    isActive           Boolean   @default(true)
+    passwordResetToken String?
+    deletedAt          DateTime?
+    createdAt          DateTime  @default(now())
+    updatedAt          DateTime  @updatedAt
+
+    bankConsents BankConsent[]
+    bankAccounts BankAccount[]
+
+    @@map("users")
+}
+
+model BankConsent {
+    id            String   @id @default(uuid())
+    userId        String
+    yapilyUserId  String
+    institutionId String
+    consentToken  String?
+    status        String
+    featureScope  String[]
+    createdAt     DateTime @default(now())
+    updatedAt     DateTime @updatedAt
+
+    user         User          @relation(fields: [userId], references: [id])
+    bankAccounts BankAccount[]
+
+    @@unique([userId, institutionId])
+    @@index([userId])
+    @@map("bank_consents")
+}
+
+model BankAccount {
+    id            String   @id @default(uuid())
+    userId        String
+    accountId     String
+    institutionId String
+    name          String
+    accountType   String
+    usageType     String
+    balance       Float
+    currency      String
+    meta          Json?
+    bankConsentId String?
+    createdAt     DateTime @default(now())
+    updatedAt     DateTime @updatedAt
+
+    user                      User                        @relation(fields: [userId], references: [id])
+    consent                   BankConsent?                @relation(fields: [bankConsentId], references: [id])
+    bankAccountIdentification BankAccountIdentification[]
+    transactions              BankTransaction[]
+
+    @@unique([userId, accountId])
+    @@index([userId])
+    @@map("bank_accounts")
+}
+
+model BankAccountIdentification {
+    id             String   @id @default(uuid())
+    bankAccountId  String
+    type           String
+    identification String
+    createdAt      DateTime @default(now())
+    updatedAt      DateTime @updatedAt
+
+    account BankAccount @relation(fields: [bankAccountId], references: [id])
+
+    @@unique([bankAccountId, type, identification])
+    @@index([bankAccountId])
+    @@map("bank_account_identifications")
+}
+
+model BankTransaction {
+    id              String               @id @default(uuid())
+    bankAccountId   String
+    transactionId   String
+    date            DateTime
+    status          String
+    amount          Float
+    currency        String
+    direction       TransactionDirection
+    reference       String?
+    description     String?
+    payeeDetails    Json?
+    payerDetails    Json?
+    balanceAmount   Float?
+    balanceCurrency String?
+    weekStart       DateTime?
+    monthStart      DateTime?
+    meta            Json?
+    createdAt       DateTime             @default(now())
+    updatedAt       DateTime             @updatedAt
+
+    account BankAccount @relation(fields: [bankAccountId], references: [id])
+
+    @@unique([bankAccountId, transactionId])
+    @@index([bankAccountId])
+    @@map("bank_transactions")
+}
