@@ -10,6 +10,21 @@ Simple bank application that uses Yapily (open banking provider) to fetch bank a
 - [Live Demo](https://bank-thing.gowtham.io)
 - [API Documentation](https://api.bank-thing.gowtham.io/docs)
 
+## Bank Connect & Sync Flow
+
+```text
+1. FE → BE      : POST /bank/connect  
+2. BE → Yapily  : create auth URL  
+3. FE            : redirect browser to Yapily  
+4. User ↔ Yapily : login & consent  
+5. Yapily → BE   : GET /bank/callback?consent=…  
+6. BE            : save consent & enqueue “sync-account” jobs  
+7. FE            : open SSE → GET /event/sync  
+8. Worker        : process jobs → fetch & save transactions  
+9. Worker → FE   : emit SSE “transactions-updated” events  
+10. FE           : on SSE event → refresh UI 
+```
+
 ## Running the Application
 
 Run locally using docker compose (localhost:80)
