@@ -46,3 +46,6 @@ create-bankthing-volumes: ## Create docker volumes for bankthing
 	@docker volume create bankthing-redis-data
 	@docker network create web || true
 
+.PHONY: load-test
+load-test: ## Run load test
+	@k6 run --summary-export=dist/summary.json tests/load-test.js
